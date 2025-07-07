@@ -1,0 +1,34 @@
+# Секреты и токены
+.env
+token.pkl
+client_secret.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# IDE и системные файлы
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Архивы и сборки
+*.zip
+*.tar.gz
+*.egg-info/
+
+# Логи и временные файлы
+*.log
+*.tmp
+
+# Библиотеки
+venv/
+.env*/
+
+# PyInstaller
+*.spec
+build/
+dist/
