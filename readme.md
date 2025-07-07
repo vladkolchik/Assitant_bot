@@ -31,7 +31,9 @@ FROM_EMAIL=your_email@gmail.com
 ### 4.1 Добавьте свою почту в тестеры проекта 
 Через раздел `Audience`, там выберите `Add users` под заголовком `Test users`
 
-Подробная инструкция по настройке 
+Если нужно более подробно:
+
+[Подробная инструкция по настройке Google Cloud](https://github.com/vladkolchik/Assitant_bot/blob/main/google_cloud_full_setup.md)
 
 ### 5. Получите `token.pkl`
 ```bash
