@@ -26,10 +26,12 @@ FROM_EMAIL=your_email@gmail.com
 ```
 
 ### 4. Добавьте файл `client_secret.json`
-Скачайте его из [Google Cloud Console](https://console.cloud.google.com/apis/credentials), включив Gmail API.
+Скачайте его из [Google Cloud Console](https://console.cloud.google.com/apis/credentials), включив Gmail API. Обратите внимание, что скачивание этого файла недоступно после создания API - это возможно сделать только на финальном этапе создания.
 
 ### 4.1 Добавьте свою почту в тестеры проекта 
 Через раздел `Audience`, там выберите `Add users` под заголовком `Test users`
+
+Подробная инструкция по настройке 
 
 ### 5. Получите `token.pkl`
 ```bash
