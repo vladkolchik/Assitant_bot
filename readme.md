@@ -23,6 +23,7 @@ pip install aiogram python-dotenv google-auth google-auth-oauthlib
 BOT_TOKEN=your_telegram_bot_token
 ALLOWED_USER_IDS=123456789,987654321
 FROM_EMAIL=your_email@gmail.com
+DEFAULT_RECIPIENT = test@test.ru
 ```
 
 ### 4. Добавьте файл `client_secret.json`
