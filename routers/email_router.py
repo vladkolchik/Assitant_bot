@@ -117,6 +117,35 @@ async def handle_input(message: Message):
             else:
                 state["files"].append((message.document.file_name, file_bytes))
                 await message.answer(f"📎 Файл «{message.document.file_name}» прикреплён.")
+        elif message.photo:
+            # Берем фото с наивысшим качеством (последнее в массиве)
+            photo = message.photo[-1]
+            file = await message.bot.download(photo)
+            file_bytes = file.read()
+            file_name = f"screenshot_{photo.file_unique_id}.jpg"
+            
+            if message.caption:
+                lines = message.caption.strip().splitlines()
+                if len(lines) >= 2:
+                    subject = lines[0]
+                    body = "\n".join(lines[1:])
+                    recipient = state["recipient"] or default_recipient
+                    attachments = [(file_name, file_bytes)]
+                    success = send_email_oauth2(recipient, subject, body, attachments)
+                    if success:
+                        await message.answer("✅ Письмо с изображением отправлено.")
+                    else:
+                        await message.answer(MESSAGES["email_failed"])
+                    state["draft"] = {}
+                    state["files"] = []
+                    user_states[user_id] = state
+                    return
+                else:
+                    await message.answer(MESSAGES["invalid_format"])
+                    return
+            else:
+                state["files"].append((file_name, file_bytes))
+                await message.answer(f"📎 Изображение «{file_name}» прикреплено.")
         elif not state["draft"] and message.text:
             lines = text.splitlines()
             if len(lines) >= 2:
