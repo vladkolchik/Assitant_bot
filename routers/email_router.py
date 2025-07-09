@@ -91,7 +91,19 @@ async def menu_handler(callback: CallbackQuery):
         state["recipient"] = None
         await callback.message.edit_text(MESSAGES["recipient_reset"], reply_markup=get_recipient_menu())
     elif data == "back_to_email_menu":
-        await callback.message.edit_text(MESSAGES["enter_email_mode"], reply_markup=get_email_menu())
+        # Формируем динамическое сообщение с информацией о состоянии
+        recipient = state["recipient"] or default_recipient
+        files_count = len(state.get("files", []))
+        
+        msg = MESSAGES["enter_email_mode"]
+        msg += "\n\n" + "─" * 30
+        msg += f"\n📧 <b>Получатель:</b> {recipient}"
+        msg += f"\n🗂 <b>Файлов в черновике:</b> {files_count}"
+        
+        if files_count > 0:
+            msg += " ⚠️"
+        
+        await callback.message.edit_text(msg, reply_markup=get_email_menu(), parse_mode='HTML')
     elif data == "show_attachments":
         files = state.get("files", [])
         if not files:
