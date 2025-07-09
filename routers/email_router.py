@@ -6,6 +6,7 @@ from messages import MESSAGES
 from services.email_sender import send_email_oauth2
 from keyboards.email_ui import get_main_menu, get_email_menu, get_recipient_menu
 import re
+import asyncio
 
 email_router = Router()
 
@@ -98,10 +99,13 @@ async def handle_input(message: Message):
             if message.caption:
                 lines = message.caption.strip().splitlines()
                 if len(lines) >= 2:
+                    # Ждем 2 секунды для накопления файлов из групповых сообщений
+                    await asyncio.sleep(2)
+                    
                     subject = lines[0]
                     body = "\n".join(lines[1:])
                     recipient = state["recipient"] or default_recipient
-                    attachments = [(message.document.file_name, file_bytes)]
+                    attachments = state["files"] + [(message.document.file_name, file_bytes)]
                     success = send_email_oauth2(recipient, subject, body, attachments)
                     if success:
                         await message.answer("✅ Письмо с вложением отправлено.")
@@ -127,10 +131,13 @@ async def handle_input(message: Message):
             if message.caption:
                 lines = message.caption.strip().splitlines()
                 if len(lines) >= 2:
+                    # Ждем 2 секунды для накопления файлов из групповых сообщений
+                    await asyncio.sleep(2)
+                    
                     subject = lines[0]
                     body = "\n".join(lines[1:])
                     recipient = state["recipient"] or default_recipient
-                    attachments = [(file_name, file_bytes)]
+                    attachments = state["files"] + [(file_name, file_bytes)]
                     success = send_email_oauth2(recipient, subject, body, attachments)
                     if success:
                         await message.answer("✅ Письмо с изображением отправлено.")
@@ -149,6 +156,9 @@ async def handle_input(message: Message):
         elif not state["draft"] and message.text:
             lines = text.splitlines()
             if len(lines) >= 2:
+                # Ждем 2 секунды для накопления файлов из групповых сообщений
+                await asyncio.sleep(2)
+                
                 subject = lines[0]
                 body = "\n".join(lines[1:])
                 recipient = state["recipient"] or default_recipient
