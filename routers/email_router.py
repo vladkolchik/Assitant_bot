@@ -1,6 +1,7 @@
 from aiogram import Router, types
 from aiogram.types import CallbackQuery, Message
 from aiogram.filters import CommandStart, Command
+from aiogram.exceptions import TelegramBadRequest
 from config import ALLOWED_USER_IDS, FROM_EMAIL, DEFAULT_RECIPIENT
 from messages import MESSAGES
 from services.email_sender import send_email_oauth2
@@ -27,6 +28,15 @@ async def start_cmd(message: Message):
 @email_router.message(Command("menu"))
 async def menu_cmd(message: Message):
     if message.from_user.id in ALLOWED_USER_IDS:
+        user_id = message.from_user.id
+        
+        # Инициализируем состояние если его нет, но сохраняем существующие данные
+        if user_id not in user_states:
+            user_states[user_id] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
+        else:
+            # Выходим из режима отправки писем, но сохраняем черновики и получателя
+            user_states[user_id]["mode"] = "default"
+        
         await message.answer(MESSAGES["start"], reply_markup=get_main_menu())
     else:
         await message.answer(MESSAGES["no_access"])
@@ -39,23 +49,41 @@ async def menu_handler(callback: CallbackQuery):
 
     if data == "email_mode":
         state["mode"] = "email"
-        state["draft"] = {}
-        state["files"] = []
-        await callback.message.edit_text(MESSAGES["enter_email_mode"], reply_markup=get_email_menu())
+        # НЕ сбрасываем файлы при входе в email режим, сохраняем черновик
+        
+        # Формируем динамическое сообщение с информацией о состоянии
+        recipient = state["recipient"] or default_recipient
+        files_count = len(state.get("files", []))
+        
+        msg = MESSAGES["enter_email_mode"]
+        msg += "\n\n" + "─" * 30
+        msg += f"\n📧 <b>Получатель:</b> {recipient}"
+        msg += f"\n🗂 <b>Файлов в черновике:</b> {files_count}"
+        
+        if files_count > 0:
+            msg += " ⚠️"
+        
+        try:
+            await callback.message.edit_text(msg, reply_markup=get_email_menu())
+        except TelegramBadRequest:
+            await callback.answer("ℹ️ Уже в режиме email", show_alert=False)
     elif data == "reset_draft":
         state["draft"] = {}
         state["files"] = []
         await callback.message.edit_text("🗑 Черновик и вложения очищены.", reply_markup=get_email_menu())
     elif data == "exit_email_mode":
         state["mode"] = "default"
-        state["draft"] = {}
-        state["files"] = []
+        # НЕ сбрасываем черновик и файлы при выходе из email режима
         await callback.message.edit_text(MESSAGES["exit_email_mode"], reply_markup=get_main_menu())
     elif data == "recipient_menu":
-        await callback.message.edit_text("🔧 Управление получателем:", reply_markup=get_recipient_menu())
-    elif data == "show_recipient":
         current = state["recipient"] or default_recipient
-        await callback.message.edit_text(MESSAGES["current_recipient"].format(email=current), reply_markup=get_recipient_menu())
+        msg = f"🔧 Управление получателем:\n\n📨 Текущий получатель: <b>{current}</b>"
+        
+        try:
+            await callback.message.edit_text(msg, reply_markup=get_recipient_menu(), parse_mode='HTML')
+        except TelegramBadRequest:
+            await callback.answer("ℹ️ Получатель не изменился", show_alert=False)
+
     elif data == "edit_recipient":
         state["mode"] = "entering_email"
         await callback.message.edit_text(MESSAGES["ask_recipient"], reply_markup=get_recipient_menu())
@@ -70,7 +98,11 @@ async def menu_handler(callback: CallbackQuery):
             msg = "📎 Вложения не найдены."
         else:
             msg = f"📎 Вложения ({len(files)}):\n" + "\n".join([f"- {f[0]}" for f in files])
-        await callback.message.edit_text(msg, reply_markup=get_email_menu())
+        
+        try:
+            await callback.message.edit_text(msg, reply_markup=get_email_menu())
+        except TelegramBadRequest:
+            await callback.answer("ℹ️ Информация актуальна", show_alert=False)
 
     user_states[user_id] = state
     await callback.answer()

@@ -15,7 +15,6 @@ def get_email_menu():
 
 def get_recipient_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Показать текущего", callback_data="show_recipient")],
         [InlineKeyboardButton(text="✏️ Изменить", callback_data="edit_recipient")],
         [InlineKeyboardButton(text="♻️ Сбросить", callback_data="reset_recipient")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_email_menu")]
