@@ -2,7 +2,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 def get_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✉️ Отправка email", callback_data="email_mode")]
+        [InlineKeyboardButton(text="✉️ Отправка email", callback_data="email_mode")],
+        [InlineKeyboardButton(text="🆔 Получить ID", callback_data="id_mode")]
     ])
 
 def get_email_menu():
