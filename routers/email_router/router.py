@@ -3,7 +3,8 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.filters import CommandStart, Command
 from aiogram.exceptions import TelegramBadRequest
 from config import ALLOWED_USER_IDS, FROM_EMAIL, DEFAULT_RECIPIENT
-from messages import MESSAGES
+from .messages import MESSAGES  # локальные сообщения
+from messages import MESSAGES as GLOBAL_MESSAGES  # глобальные сообщения
 from services.email_sender import send_email_oauth2
 from keyboards.email_ui import get_main_menu, get_email_menu, get_recipient_menu
 import re
@@ -19,33 +20,53 @@ def is_valid_email(email):
 
 @email_router.message(CommandStart())
 async def start_cmd(message: Message):
-    if message.from_user.id in ALLOWED_USER_IDS:
-        user_states[message.from_user.id] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
-        await message.answer(MESSAGES["start"], reply_markup=get_main_menu())
+    if not message or not getattr(message, 'from_user', None):
+        return
+    from_user = message.from_user
+    if not from_user or not hasattr(from_user, 'id'):
+        return
+    if from_user.id in ALLOWED_USER_IDS:
+        if from_user.id not in user_states:
+            user_states[from_user.id] = {}
+        user_states[from_user.id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
+        await message.answer(GLOBAL_MESSAGES["start"], reply_markup=get_main_menu())
     else:
-        await message.answer(MESSAGES["no_access"])
+        await message.answer(GLOBAL_MESSAGES["no_access"])
 
 @email_router.message(Command("menu"))
 async def menu_cmd(message: Message):
-    if message.from_user.id in ALLOWED_USER_IDS:
-        user_id = message.from_user.id
-        
-        # Инициализируем состояние если его нет, но сохраняем существующие данные
+    if not message or not getattr(message, 'from_user', None):
+        return
+    from_user = message.from_user
+    if not from_user or not hasattr(from_user, 'id'):
+        return
+    if from_user.id in ALLOWED_USER_IDS:
+        user_id = from_user.id
         if user_id not in user_states:
-            user_states[user_id] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
+            user_states[user_id] = {}
+            user_states[user_id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
         else:
-            # Выходим из режима отправки писем, но сохраняем черновики и получателя
-            user_states[user_id]["mode"] = "default"
-        
-        await message.answer(MESSAGES["start"], reply_markup=get_main_menu())
+            if "email_router" not in user_states[user_id]:
+                user_states[user_id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
+            else:
+                user_states[user_id]["email_router"]["mode"] = "default"
+        await message.answer(GLOBAL_MESSAGES["start"], reply_markup=get_main_menu())
     else:
-        await message.answer(MESSAGES["no_access"])
+        await message.answer(GLOBAL_MESSAGES["no_access"])
 
 @email_router.callback_query()
 async def menu_handler(callback: CallbackQuery):
-    user_id = callback.from_user.id
+    if not callback or not getattr(callback, 'from_user', None):
+        return
+    from_user = callback.from_user
+    if not from_user or not hasattr(from_user, 'id'):
+        return
+    user_id = from_user.id
     data = callback.data
-    state = user_states.get(user_id)
+    if user_id not in user_states or "email_router" not in user_states[user_id]:
+        user_states[user_id] = {}
+        user_states[user_id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
+    state = user_states[user_id]["email_router"]
 
     if data == "email_mode":
         state["mode"] = "email"
@@ -64,32 +85,38 @@ async def menu_handler(callback: CallbackQuery):
             msg += " ⚠️"
         
         try:
-            await callback.message.edit_text(msg, reply_markup=get_email_menu())
+            if callback.message:
+                await callback.message.edit_text(msg, reply_markup=get_email_menu())
         except TelegramBadRequest:
             await callback.answer("ℹ️ Уже в режиме email", show_alert=False)
     elif data == "reset_draft":
         state["draft"] = {}
         state["files"] = []
-        await callback.message.edit_text("🗑 Черновик и вложения очищены.", reply_markup=get_email_menu())
+        if callback.message:
+            await callback.message.edit_text("🗑 Черновик и вложения очищены.", reply_markup=get_email_menu())
     elif data == "exit_email_mode":
         state["mode"] = "default"
         # НЕ сбрасываем черновик и файлы при выходе из email режима
-        await callback.message.edit_text(MESSAGES["exit_email_mode"], reply_markup=get_main_menu())
+        if callback.message:
+            await callback.message.edit_text(MESSAGES["exit_email_mode"], reply_markup=get_main_menu())
     elif data == "recipient_menu":
         current = state["recipient"] or default_recipient
         msg = f"🔧 Управление получателем:\n\n📨 Текущий получатель: <b>{current}</b>"
         
         try:
-            await callback.message.edit_text(msg, reply_markup=get_recipient_menu(), parse_mode='HTML')
+            if callback.message:
+                await callback.message.edit_text(msg, reply_markup=get_recipient_menu(), parse_mode='HTML')
         except TelegramBadRequest:
             await callback.answer("ℹ️ Получатель не изменился", show_alert=False)
 
     elif data == "edit_recipient":
         state["mode"] = "entering_email"
-        await callback.message.edit_text(MESSAGES["ask_recipient"], reply_markup=get_recipient_menu())
+        if callback.message:
+            await callback.message.edit_text(MESSAGES["ask_recipient"], reply_markup=get_recipient_menu())
     elif data == "reset_recipient":
         state["recipient"] = None
-        await callback.message.edit_text(MESSAGES["recipient_reset"], reply_markup=get_recipient_menu())
+        if callback.message:
+            await callback.message.edit_text(MESSAGES["recipient_reset"], reply_markup=get_recipient_menu())
     elif data == "back_to_email_menu":
         # Формируем динамическое сообщение с информацией о состоянии
         recipient = state["recipient"] or default_recipient
@@ -103,7 +130,8 @@ async def menu_handler(callback: CallbackQuery):
         if files_count > 0:
             msg += " ⚠️"
         
-        await callback.message.edit_text(msg, reply_markup=get_email_menu(), parse_mode='HTML')
+        if callback.message:
+            await callback.message.edit_text(msg, reply_markup=get_email_menu(), parse_mode='HTML')
     elif data == "show_attachments":
         files = state.get("files", [])
         if not files:
@@ -112,21 +140,30 @@ async def menu_handler(callback: CallbackQuery):
             msg = f"📎 Вложения ({len(files)}):\n" + "\n".join([f"- {f[0]}" for f in files])
         
         try:
-            await callback.message.edit_text(msg, reply_markup=get_email_menu())
+            if callback.message:
+                await callback.message.edit_text(msg, reply_markup=get_email_menu())
         except TelegramBadRequest:
             await callback.answer("ℹ️ Информация актуальна", show_alert=False)
 
-    user_states[user_id] = state
+    user_states[user_id]["email_router"] = state
     await callback.answer()
 
 @email_router.message()
 async def handle_input(message: Message):
-    user_id = message.from_user.id
-    if user_id not in ALLOWED_USER_IDS:
-        await message.answer(MESSAGES["no_access"])
+    if not message or not getattr(message, 'from_user', None):
         return
+    from_user = message.from_user
+    if not from_user or not hasattr(from_user, 'id'):
+        return
+    user_id = from_user.id
+    if user_id not in ALLOWED_USER_IDS:
+        await message.answer(GLOBAL_MESSAGES["no_access"])
+        return
+    if user_id not in user_states or "email_router" not in user_states[user_id]:
+        user_states[user_id] = {}
+        user_states[user_id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
+    state = user_states[user_id]["email_router"]
 
-    state = user_states.get(user_id)
     text = message.text.strip() if message.text else ""
 
     if state["mode"] == "entering_email":
@@ -157,7 +194,7 @@ async def handle_input(message: Message):
                         await message.answer(MESSAGES["email_failed"])
                     state["draft"] = {}
                     state["files"] = []
-                    user_states[user_id] = state
+                    user_states[user_id]["email_router"] = state
                     return
                 else:
                     await message.answer(MESSAGES["invalid_format"])
@@ -189,7 +226,7 @@ async def handle_input(message: Message):
                         await message.answer(MESSAGES["email_failed"])
                     state["draft"] = {}
                     state["files"] = []
-                    user_states[user_id] = state
+                    user_states[user_id]["email_router"] = state
                     return
                 else:
                     await message.answer(MESSAGES["invalid_format"])
@@ -224,4 +261,4 @@ async def handle_input(message: Message):
     else:
         await message.answer(f"Вы сказали: {text}")
 
-    user_states[user_id] = state
+    user_states[user_id]["email_router"] = state 
