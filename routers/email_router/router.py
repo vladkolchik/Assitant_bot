@@ -9,6 +9,7 @@ from services.email_sender import send_email_oauth2
 from keyboards.email_ui import get_main_menu, get_email_menu, get_recipient_menu
 import re
 import asyncio
+from aiogram import F
 
 email_router = Router()
 
@@ -54,7 +55,10 @@ async def menu_cmd(message: Message):
     else:
         await message.answer(GLOBAL_MESSAGES["no_access"])
 
-@email_router.callback_query()
+@email_router.callback_query(F.data.in_({
+    "email_mode", "reset_draft", "exit_email_mode", "recipient_menu", 
+    "edit_recipient", "reset_recipient", "back_to_email_menu", "show_attachments"
+}))
 async def menu_handler(callback: CallbackQuery):
     if not callback or not getattr(callback, 'from_user', None):
         return
