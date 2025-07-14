@@ -6,7 +6,8 @@ from config import ALLOWED_USER_IDS, FROM_EMAIL, DEFAULT_RECIPIENT
 from .messages import MESSAGES  # локальные сообщения
 from messages import MESSAGES as GLOBAL_MESSAGES  # глобальные сообщения
 from services.email_sender import send_email_oauth2
-from keyboards.email_ui import get_main_menu, get_email_menu, get_recipient_menu
+from keyboards.email_ui import get_email_menu, get_recipient_menu
+from keyboards.main_menu import get_main_menu
 import re
 import asyncio
 from aiogram import F
