@@ -1,40 +1,122 @@
 import base64
 import smtplib
-import pickle
+import logging
 from email.message import EmailMessage
-from google.auth.transport.requests import Request
-from config import FROM_EMAIL
+from routers.email_router.config import GMAIL_ADDRESS, EMAIL_CONFIG
+from routers.email_router.auth import GoogleAuthManager
+
+# Настройка логирования для email модуля
+logger = logging.getLogger(__name__)
+
+# Инициализируем менеджер авторизации с конфигурацией модуля
+auth_manager = GoogleAuthManager(email_address=GMAIL_ADDRESS)
+
+class EmailSenderError(Exception):
+    """Базовое исключение для ошибок отправки email"""
+    pass
+
+class AuthenticationError(EmailSenderError):
+    """Ошибка авторизации"""
+    pass
+
+class SMTPConnectionError(EmailSenderError):
+    """Ошибка подключения к SMTP"""
+    pass
 
 def send_email_oauth2(recipient, subject, body, attachments=None):
+    """
+    Отправка email через Gmail OAuth2
+    
+    Args:
+        recipient: Email получателя
+        subject: Тема письма
+        body: Тело письма
+        attachments: Список файлов для прикрепления (опционально)
+        
+    Returns:
+        tuple: (success: bool, error_message: str | None)
+    """
     try:
-        with open("token.pkl", "rb") as token_file:
-            creds = pickle.load(token_file)
-
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open("token.pkl", "wb") as token_file:
-                pickle.dump(creds, token_file)
-
-        access_token = creds.token
-        auth_string = f"user={FROM_EMAIL}\x01auth=Bearer {access_token}\x01\x01"
-        auth_bytes = base64.b64encode(auth_string.encode("utf-8"))
-
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"] = FROM_EMAIL
-        msg["To"] = recipient
-        msg.set_content(body)
-
+        # Получаем валидные credentials через менеджер авторизации
+        creds = auth_manager.get_valid_credentials()
+        if not creds:
+            auth_status = auth_manager.get_auth_status()
+            return False, f"Ошибка авторизации: {auth_status['message']}"
+        
+        # Создаем сообщение
+        message = EmailMessage()
+        message["From"] = GMAIL_ADDRESS
+        message["To"] = recipient
+        message["Subject"] = subject
+        message.set_content(body)
+        
+        # Добавляем вложения, если есть
         if attachments:
-            for filename, file_bytes in attachments:
-                msg.add_attachment(file_bytes, maintype='application', subtype='octet-stream', filename=filename)
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-            smtp.ehlo()
-            smtp.starttls()
-            smtp.docmd("AUTH", "XOAUTH2 " + auth_bytes.decode())
-            smtp.send_message(msg)
-        return True
+            for file_path, file_name in attachments:
+                try:
+                    with open(file_path, "rb") as f:
+                        file_data = f.read()
+                    
+                    # Определяем MIME тип
+                    maintype = "application"
+                    subtype = "octet-stream"
+                    
+                    # Добавляем файл как вложение
+                    message.add_attachment(
+                        file_data,
+                        maintype=maintype,
+                        subtype=subtype,
+                        filename=file_name
+                    )
+                    logger.info(f"Добавлено вложение: {file_name}")
+                    
+                except FileNotFoundError:
+                    error_msg = f"Файл не найден: {file_path}"
+                    logger.error(error_msg)
+                    return False, error_msg
+                except Exception as e:
+                    error_msg = f"Ошибка добавления вложения {file_name}: {e}"
+                    logger.error(error_msg)
+                    return False, error_msg
+        
+        # Подключаемся к Gmail SMTP (используем проверенный метод)
+        try:
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.ehlo()  # Команда приветствия SMTP
+                server.starttls()  # Включаем TLS
+                
+                # Аутентифицируемся с помощью OAuth2 (проверенный формат)
+                auth_string = f"user={GMAIL_ADDRESS}\x01auth=Bearer {creds.token}\x01\x01"
+                auth_bytes = base64.b64encode(auth_string.encode("utf-8"))
+                server.docmd("AUTH", "XOAUTH2 " + auth_bytes.decode())
+                
+                # Отправляем письмо
+                server.send_message(message)
+                
+                logger.info(f"Email успешно отправлен на {recipient}")
+                return True, None
+                
+        except smtplib.SMTPAuthenticationError as e:
+            error_msg = f"Ошибка аутентификации SMTP: {e}"
+            logger.error(error_msg)
+            return False, error_msg
+            
+        except smtplib.SMTPException as e:
+            error_msg = f"Ошибка SMTP: {e}"
+            logger.error(error_msg)
+            return False, error_msg
+            
     except Exception as e:
-        print("Email sending error:", e)
-        return False
+        error_msg = f"Неожиданная ошибка при отправке email: {e}"
+        logger.error(error_msg)
+        return False, error_msg
+
+
+
+def get_auth_status():
+    """Возвращает статус авторизации"""
+    return auth_manager.get_auth_status()
+
+def is_authorized():
+    """Проверяет, авторизован ли пользователь"""
+    return auth_manager.is_authorized()
