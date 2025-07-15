@@ -4,6 +4,6 @@ from .router import id_module_router
 MENU_CONFIG = {
     'text': '🆔 Получить ID',
     'callback_data': 'id_mode',
-    'order': 20
+    'order': 30  # После core и основных модулей
 }
 
