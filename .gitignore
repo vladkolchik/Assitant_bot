@@ -1,6 +1,11 @@
 # Секреты и токены
 .env
+# Модульные .env файлы
+routers/*/.env
+routers/**/.env
+# OAuth токены
 token.pkl
+*.pkl
 client_secret.json
 
 # Python
