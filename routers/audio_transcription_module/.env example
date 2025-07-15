@@ -1,0 +1,9 @@
+# Получите API ключ на https://platform.openai.com/api-keys
+
+# Обязательная переменная - API ключ OpenAI (для Whisper)
+OPENAI_API_KEY=sk-your_openai_api_key_here
+
+# Опциональные настройки транскрипции
+WHISPER_MODEL=whisper-1
+WHISPER_LANGUAGE=auto
+WHISPER_TEMPERATURE=0
