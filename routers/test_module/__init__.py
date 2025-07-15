@@ -4,5 +4,5 @@ from .router import test_module_router
 MENU_CONFIG = {
     'text': '🧪 Тест модуль',
     'callback_data': 'test_mode',
-    'order': 15  # Между email (10) и id_module (20)
+    'order': 20  # После основных модулей
 } 

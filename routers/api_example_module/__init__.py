@@ -4,5 +4,5 @@ from .router import api_example_router
 MENU_CONFIG = {
     'text': '🌐 API Пример',
     'callback_data': 'api_example_mode',
-    'order': 25  # После основных модулей
+    'order': 25  # Демонстрационные модули
 } 

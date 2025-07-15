@@ -21,41 +21,7 @@ default_recipient = DEFAULT_EMAIL_RECIPIENT
 def is_valid_email(email):
     return re.match(r"[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}", email)
 
-@email_router.message(CommandStart())
-async def start_cmd(message: Message):
-    if not message or not getattr(message, 'from_user', None):
-        return
-    from_user = message.from_user
-    if not from_user or not hasattr(from_user, 'id'):
-        return
-    if from_user.id in ALLOWED_USER_IDS:
-        if from_user.id not in user_states:
-            user_states[from_user.id] = {}
-        user_states[from_user.id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
-        await message.answer(GLOBAL_MESSAGES["start"], reply_markup=get_main_menu())
-    else:
-        await message.answer(GLOBAL_MESSAGES["no_access"])
-
-@email_router.message(Command("menu"))
-async def menu_cmd(message: Message):
-    if not message or not getattr(message, 'from_user', None):
-        return
-    from_user = message.from_user
-    if not from_user or not hasattr(from_user, 'id'):
-        return
-    if from_user.id in ALLOWED_USER_IDS:
-        user_id = from_user.id
-        if user_id not in user_states:
-            user_states[user_id] = {}
-            user_states[user_id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
-        else:
-            if "email_router" not in user_states[user_id]:
-                user_states[user_id]["email_router"] = {"mode": "default", "recipient": None, "draft": {}, "files": []}
-            else:
-                user_states[user_id]["email_router"]["mode"] = "default"
-        await message.answer(GLOBAL_MESSAGES["start"], reply_markup=get_main_menu())
-    else:
-        await message.answer(GLOBAL_MESSAGES["no_access"])
+# Команды /start и /menu перенесены в core модуль для лучшей архитектуры
 
 @email_router.callback_query(F.data.in_({
     "email_mode", "reset_draft", "exit_email_mode", "recipient_menu", 
