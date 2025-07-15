@@ -1,0 +1,8 @@
+# Email модуль - настройки Gmail
+# Скопируйте в .env и заполните реальными значениями
+
+# Email, от имени которого будут отправляться письма
+FROM_EMAIL=your_email@gmail.com
+
+# Email получателя по умолчанию
+DEFAULT_RECIPIENT=test@test.ru 
