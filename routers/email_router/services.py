@@ -1,9 +1,12 @@
+"""
+Сервисы email модуля - модульный подход
+"""
 import base64
 import smtplib
 import logging
 from email.message import EmailMessage
-from routers.email_router.config import GMAIL_ADDRESS, EMAIL_CONFIG
-from routers.email_router.auth import GoogleAuthManager
+from .config import GMAIL_ADDRESS, EMAIL_CONFIG
+from .auth import GoogleAuthManager
 
 # Настройка логирования для email модуля
 logger = logging.getLogger(__name__)
@@ -111,12 +114,10 @@ def send_email_oauth2(recipient, subject, body, attachments=None):
         logger.error(error_msg)
         return False, error_msg
 
-
-
 def get_auth_status():
     """Возвращает статус авторизации"""
     return auth_manager.get_auth_status()
 
 def is_authorized():
     """Проверяет, авторизован ли пользователь"""
-    return auth_manager.is_authorized()
+    return auth_manager.is_authorized() 

@@ -6,9 +6,8 @@ from config import ALLOWED_USER_IDS
 from .config import GMAIL_ADDRESS, DEFAULT_EMAIL_RECIPIENT
 from .messages import MESSAGES  # локальные сообщения
 from messages import MESSAGES as GLOBAL_MESSAGES  # глобальные сообщения
-from services.email_sender import send_email_oauth2, get_auth_status, is_authorized
-from keyboards.email_ui import get_email_menu, get_recipient_menu
-from keyboards.main_menu import get_main_menu
+from .services import send_email_oauth2, get_auth_status, is_authorized
+from .keyboards import get_email_menu, get_recipient_menu
 import re
 import asyncio
 from aiogram import F
@@ -69,8 +68,12 @@ async def menu_handler(callback: CallbackQuery):
     elif data == "exit_email_mode":
         state["mode"] = "default"
         # НЕ сбрасываем черновик и файлы при выходе из email режима
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        back_to_menu = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
         if callback.message:
-            await callback.message.edit_text(MESSAGES["exit_email_mode"], reply_markup=get_main_menu())
+            await callback.message.edit_text(MESSAGES["exit_email_mode"], reply_markup=back_to_menu)  # type: ignore
     elif data == "recipient_menu":
         current = state["recipient"] or default_recipient
         msg = f"🔧 Управление получателем:\n\n📨 Текущий получатель: <b>{current}</b>"
