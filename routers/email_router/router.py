@@ -2,10 +2,11 @@ from aiogram import Router, types
 from aiogram.types import CallbackQuery, Message
 from aiogram.filters import CommandStart, Command
 from aiogram.exceptions import TelegramBadRequest
-from config import ALLOWED_USER_IDS, FROM_EMAIL, DEFAULT_RECIPIENT
+from config import ALLOWED_USER_IDS
+from .config import GMAIL_ADDRESS, DEFAULT_EMAIL_RECIPIENT
 from .messages import MESSAGES  # локальные сообщения
 from messages import MESSAGES as GLOBAL_MESSAGES  # глобальные сообщения
-from services.email_sender import send_email_oauth2
+from services.email_sender import send_email_oauth2, get_auth_status, is_authorized
 from keyboards.email_ui import get_email_menu, get_recipient_menu
 from keyboards.main_menu import get_main_menu
 import re
@@ -15,7 +16,7 @@ from aiogram import F
 email_router = Router()
 
 user_states = {}
-default_recipient = DEFAULT_RECIPIENT
+default_recipient = DEFAULT_EMAIL_RECIPIENT
 
 def is_valid_email(email):
     return re.match(r"[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}", email)
@@ -192,11 +193,11 @@ async def handle_input(message: Message):
                     body = "\n".join(lines[1:])
                     recipient = state["recipient"] or default_recipient
                     attachments = state["files"] + [(message.document.file_name, file_bytes)]
-                    success = send_email_oauth2(recipient, subject, body, attachments)
+                    success, error_msg = send_email_oauth2(recipient, subject, body, attachments)
                     if success:
                         await message.answer("✅ Письмо с вложением отправлено.")
                     else:
-                        await message.answer(MESSAGES["email_failed"])
+                        await message.answer(f"{MESSAGES['email_failed']}\n❌ {error_msg}")
                     state["draft"] = {}
                     state["files"] = []
                     user_states[user_id]["email_router"] = state
@@ -224,11 +225,11 @@ async def handle_input(message: Message):
                     body = "\n".join(lines[1:])
                     recipient = state["recipient"] or default_recipient
                     attachments = state["files"] + [(file_name, file_bytes)]
-                    success = send_email_oauth2(recipient, subject, body, attachments)
+                    success, error_msg = send_email_oauth2(recipient, subject, body, attachments)
                     if success:
                         await message.answer("✅ Письмо с изображением отправлено.")
                     else:
-                        await message.answer(MESSAGES["email_failed"])
+                        await message.answer(f"{MESSAGES['email_failed']}\n❌ {error_msg}")
                     state["draft"] = {}
                     state["files"] = []
                     user_states[user_id]["email_router"] = state
@@ -248,14 +249,14 @@ async def handle_input(message: Message):
                 subject = lines[0]
                 body = "\n".join(lines[1:])
                 recipient = state["recipient"] or default_recipient
-                success = send_email_oauth2(recipient, subject, body, state["files"])
+                success, error_msg = send_email_oauth2(recipient, subject, body, state["files"])
                 if success:
                     if state["files"]:
                         await message.answer("✅ Письмо с вложением отправлено.")
                     else:
                         await message.answer("✅ Письмо отправлено.")
                 else:
-                    await message.answer(MESSAGES["email_failed"])
+                    await message.answer(f"{MESSAGES['email_failed']}\n❌ {error_msg}")
                 state["draft"] = {}
                 state["files"] = []
             else:
