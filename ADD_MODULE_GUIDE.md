@@ -139,6 +139,72 @@ MESSAGES = {
 
 ---
 
+## 8.1. Расширенный пример - `test_module`
+
+В проекте есть демонстрационный модуль `test_module`, который показывает различные возможности:
+
+**routers/test_module/__init__.py**
+```python
+from .router import test_module_router
+
+# Конфигурация для главного меню
+MENU_CONFIG = {
+    'text': '🧪 Тест модуль',
+    'callback_data': 'test_mode',
+    'order': 15  # Между email (10) и id_module (20)
+}
+```
+
+**routers/test_module/router.py**
+```python
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from .messages import MESSAGES
+import datetime
+
+test_module_router = Router()
+
+@test_module_router.callback_query(F.data == "test_mode")
+async def test_callback(callback: CallbackQuery):
+    """Обработка кнопки тестового модуля из главного меню"""
+    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+    await callback.message.answer(
+        f"{MESSAGES['test_activated']}\n"
+        f"⏰ Время: {current_time}\n"
+        f"👤 Пользователь: {callback.from_user.first_name}\n"
+        f"🆔 ID: {callback.from_user.id}"
+    )
+    await callback.answer("Тестовый модуль активирован! ✅")
+
+@test_module_router.message(F.text.contains("тест"))
+async def test_message(message: Message):
+    """Реагирует на сообщения содержащие слово 'тест'"""
+    await message.answer(MESSAGES["test_message"])
+
+@test_module_router.message(F.text == "🧪")
+async def test_emoji(message: Message):
+    """Реагирует на эмодзи пробирки"""
+    await message.answer(MESSAGES["test_emoji"])
+```
+
+**routers/test_module/messages.py**
+```python
+MESSAGES = {
+    "test_activated": "🧪 Тестовый модуль активирован!",
+    "test_message": "🔍 Обнаружено слово 'тест' в сообщении! Модуль работает корректно.",
+    "test_emoji": "🧪 Получена пробирка! Система фильтров работает отлично!"
+}
+```
+
+**Что демонстрирует этот модуль:**
+- Callback обработчик с динамической информацией
+- Text filter с `.contains()` для поиска слов в сообщениях
+- Emoji filter с точным совпадением
+- Правильную позицию в меню благодаря `order: 15`
+- Использование `await callback.answer()` для уведомлений
+
+---
+
 ## 9. Рекомендации
 
 - Давайте объекту Router уникальное имя (например, `my_module_router`), чтобы избежать конфликтов.
@@ -169,7 +235,7 @@ MESSAGES = {
 ### Конфликты с другими модулями:
 - Не используйте общие обработчики `@router.callback_query()` без фильтров.
 - Используйте уникальные названия для callback_data.
-- Посмотрите примеры в других модулях или обратитесь к документации aiogram.
+- Посмотрите примеры в других модулях (`id_module`, `test_module`) или обратитесь к документации aiogram.
 
 ---
 
