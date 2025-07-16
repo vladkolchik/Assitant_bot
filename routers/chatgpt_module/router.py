@@ -48,15 +48,75 @@ except ImportError:
     image_processor = None
     VISION_AVAILABLE = False
 
+async def toggle_mem0_setting() -> bool:
+    """
+    Переключает MEM0_ENABLED в .env файле модуля
+    Возвращает новое состояние (True/False)
+    """
+    try:
+        import os
+        import re
+        from pathlib import Path
+        
+        env_file = Path(__file__).parent / '.env'
+        
+        if env_file.exists():
+            content = env_file.read_text(encoding='utf-8')
+        else:
+            content = ""
+        
+        # Ищем строку MEM0_ENABLED
+        if 'MEM0_ENABLED=' in content:
+            # Переключаем значение
+            if 'MEM0_ENABLED=true' in content:
+                new_content = content.replace('MEM0_ENABLED=true', 'MEM0_ENABLED=false')
+                new_value = False
+            else:
+                new_content = content.replace('MEM0_ENABLED=false', 'MEM0_ENABLED=true')
+                new_value = True
+        else:
+            # Добавляем настройку если её нет
+            new_content = content + '\n# Mem0 долговременная память\nMEM0_ENABLED=false\n'
+            new_value = False
+        
+        # Сохраняем изменения
+        env_file.write_text(new_content, encoding='utf-8')
+        
+        # Обновляем конфигурацию модуля в runtime
+        MODULE_CONFIG['mem0_enabled'] = new_value
+        
+        return new_value
+        
+    except Exception as e:
+        print(f"❌ Ошибка переключения MEM0_ENABLED: {e}")
+        return MODULE_CONFIG.get('mem0_enabled', False)
+
 def get_back_menu():
-    """Клавиатура для возврата в главное меню и управления памятью"""
+    """Клавиатура для возврата в главное меню и управления гибридной памятью"""
     keyboard = []
     
-    # Добавляем кнопку очистки памяти если Mem0 включен
-    if MODULE_CONFIG.get('mem0_enabled', False):
-        keyboard.append([InlineKeyboardButton(text="🗑️ Очистить память", callback_data="clear_memory")])
+    # Первый ряд: кнопки управления памятью
+    memory_row = []
     
-    # Кнопка возврата в главное меню
+    # Кнопка переключения режима памяти
+    if MODULE_CONFIG.get('mem0_enabled', False):
+        memory_row.append(InlineKeyboardButton(text="🔥➡️📝 Только сессионная", callback_data="toggle_memory_mode"))
+    else:
+        memory_row.append(InlineKeyboardButton(text="📝➡️🔥 Включить гибридный", callback_data="toggle_memory_mode"))
+    
+    # Кнопка очистки памяти (всегда доступна)
+    memory_row.append(InlineKeyboardButton(text="🗑️ Очистить", callback_data="clear_memory"))
+    
+    keyboard.append(memory_row)
+    
+    # Второй ряд: информация о текущем режиме памяти
+    memory_stats = memory_service.get_memory_stats()
+    if memory_stats.get('mode') == 'hybrid':
+        keyboard.append([InlineKeyboardButton(text="🔥 Режим: Гибридная память (Mem0 + RAM)", callback_data="memory_info")])
+    else:
+        keyboard.append([InlineKeyboardButton(text="📝 Режим: Сессионная память (RAM)", callback_data="memory_info")])
+    
+    # Третий ряд: возврат в главное меню
     keyboard.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -148,33 +208,11 @@ async def handle_chatgpt_message(message: Message, state: FSMContext):
     thinking_msg = await message.reply(MESSAGES["thinking"])
     
     try:
-        # Ищем релевантный контекст из памяти
-        memory_context = ""
-        context_count = 0
+        # Получаем полный контекст из гибридной системы памяти
+        memory_context, context_count, context_source = await memory_service.get_full_context(user_id, user_text)
         
-        if MODULE_CONFIG.get('mem0_enabled', False):
-            try:
-                # Получаем релевантные воспоминания
-                memory_context = await memory_service.search_relevant_memories(user_id, user_text, limit=3)
-                
-                # Получаем профиль пользователя
-                user_profile = await memory_service.get_user_profile(user_id)
-                
-                # Объединяем контекст
-                full_context_parts = []
-                if user_profile:
-                    full_context_parts.append(user_profile)
-                if memory_context:
-                    full_context_parts.append(memory_context)
-                
-                memory_context = "\n\n".join(full_context_parts)
-                
-                if memory_context:
-                    context_count = len(memory_context.split('\n')) - 1  # Подсчитываем количество воспоминаний
-                    # print(f"🧠 Загружен контекст из памяти для {user_id}: {context_count} воспоминаний")
-                    # print(f"🔍 ОТЛАДКА - Загруженный контекст: {memory_context}")
-            except Exception as e:
-                print(f"⚠️ Ошибка поиска в памяти: {e}")
+        # print(f"🔍 ОТЛАДКА - Контекст из {context_source} памяти: {context_count} элементов")
+        # print(f"🔍 ОТЛАДКА - Загруженный контекст: {memory_context}")
         
         # Формируем сообщения для API
         system_content = "Вы полезный AI ассистент. Отвечайте на русском языке, будьте дружелюбны и информативны."
@@ -218,23 +256,21 @@ async def handle_chatgpt_message(message: Message, state: FSMContext):
         response_text = f"🤖 **ChatGPT:**\n\n{ai_response}"
         
         # Добавляем информацию о загруженном контексте если есть
-        if MODULE_CONFIG.get('mem0_enabled', False) and context_count > 0:
-            response_text += f"\n\n{MESSAGES['memory_context_loaded'].format(count=context_count)}"
+        if context_count > 0:
+            if context_source == "гибридной":
+                response_text += f"\n\n🔥 *Загружен контекст из гибридной памяти: {context_count} элементов*"
+            elif context_source == "сессионной":
+                response_text += f"\n\n📝 *Загружен контекст из сессионной памяти: {context_count} диалогов*"
         
         # Отправляем ответ AI
         await message.reply(response_text, reply_markup=get_back_menu())
         
-        # Сохраняем диалог в память
-        if MODULE_CONFIG.get('mem0_enabled', False):
-            try:
-                conversation = [
-                    {"role": "user", "content": user_text},
-                    {"role": "assistant", "content": ai_response}
-                ]
-                # print(f"💾 ОТЛАДКА - Сохраняем в память: {conversation}")
-                await memory_service.add_conversation(user_id, conversation)
-            except Exception as e:
-                print(f"⚠️ Ошибка сохранения в память: {e}")
+        # Сохраняем диалог в гибридную память
+        try:
+            await memory_service.save_conversation(user_id, user_text, ai_response)
+            # print(f"💾 ОТЛАДКА - Сохранен диалог в {context_source} память")
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения в память: {e}")
         
     except asyncio.TimeoutError:
         await thinking_msg.edit_text(MESSAGES["error_timeout"])
@@ -516,19 +552,15 @@ async def handle_unsupported_message(message: Message):
 
 @chatgpt_router.callback_query(F.data == "clear_memory", StateFilter(ChatGPTStates.waiting_for_message))
 async def clear_user_memory(callback: CallbackQuery):
-    """Очистка памяти пользователя"""
+    """Очистка всей памяти пользователя (долговременной и сессионной)"""
     if not callback.message:
         return
     
     user_id = str(callback.from_user.id)
     
-    if not MODULE_CONFIG.get('mem0_enabled', False):
-        await callback.answer(MESSAGES["memory_disabled"])
-        return
-    
     try:
-        # Очищаем память пользователя
-        success = await memory_service.clear_user_memory(user_id)
+        # Очищаем всю память пользователя в гибридной системе
+        success = await memory_service.clear_all_memory(user_id)
         
         if success:
             await callback.message.edit_text(  # type: ignore
@@ -550,6 +582,88 @@ async def clear_user_memory(callback: CallbackQuery):
             reply_markup=get_back_menu()
         )
         await callback.answer("❌ Ошибка очистки")
+
+@chatgpt_router.callback_query(F.data == "toggle_memory_mode", StateFilter(ChatGPTStates.waiting_for_message))
+async def toggle_memory_mode(callback: CallbackQuery):
+    """Переключение режима памяти (гибридная ⇄ сессионная)"""
+    if not callback.message:
+        return
+    
+    try:
+        # Переключаем режим памяти
+        new_mem0_state = await toggle_mem0_setting()
+        
+        if new_mem0_state:
+            mode_name = "гибридную память (Mem0 + RAM)"
+            icon = "🔥"
+            description = "Теперь используется максимальный контекст: семантический поиск по всей истории + последние диалоги."
+        else:
+            mode_name = "сессионную память (RAM)"
+            icon = "📝"
+            description = "Теперь используется только память текущей сессии: последние диалоги в оперативной памяти."
+        
+        await callback.message.edit_text(  # type: ignore
+            f"🔄 **Режим памяти изменен**\n\n{icon} Переключено на {mode_name}\n\n💡 **Описание:**\n{description}\n\n🔧 **Подсказка:** Переключение влияет только на новые сообщения. Существующий контекст сохраняется.",
+            reply_markup=get_back_menu()
+        )
+        await callback.answer(f"{icon} Переключено на {mode_name}")
+        
+    except Exception as e:
+        print(f"❌ Ошибка переключения режима памяти: {e}")
+        await callback.answer("❌ Ошибка переключения режима")
+
+@chatgpt_router.callback_query(F.data == "memory_info", StateFilter(ChatGPTStates.waiting_for_message))
+async def show_memory_info(callback: CallbackQuery):
+    """Показать подробную информацию о текущем режиме памяти"""
+    if not callback.message:
+        return
+    
+    try:
+        memory_stats = memory_service.get_memory_stats()
+        mode = memory_stats.get('mode', 'unknown')
+        
+        if mode == 'hybrid':
+            # Гибридный режим
+            user_id = str(callback.from_user.id)
+            session_stats = memory_service.get_session_memory_stats(user_id)
+            
+            info_text = f"🔥 **Гибридная память (Mem0 + RAM)**\n\n"
+            info_text += f"**Статус:** ✅ Активна\n"
+            info_text += f"**Долговременная память:** Mem0 API\n"
+            info_text += f"**Сессионная память:** {session_stats['messages_count']}/{session_stats['max_capacity']} диалогов\n\n"
+            info_text += f"**Как работает:**\n"
+            info_text += f"• 🧠 Семантический поиск по всей истории (Mem0)\n"
+            info_text += f"• 📝 Последние диалоги текущей сессии (RAM)\n"
+            info_text += f"• 🔀 Объединение обоих контекстов для максимальной эффективности\n\n"
+            info_text += f"**Преимущества:**\n"
+            info_text += f"• Максимально полный контекст\n"
+            info_text += f"• Персонализация на основе всей истории\n"
+            info_text += f"• Понимание как долгосрочных, так и текущих тем"
+        else:
+            # Сессионная память
+            user_id = str(callback.from_user.id)
+            session_stats = memory_service.get_session_memory_stats(user_id)
+            
+            info_text = f"📝 **Сессионная память (RAM)**\n\n"
+            info_text += f"**Статус:** ✅ Активна\n"
+            info_text += f"**Хранение:** Локальная память\n"
+            info_text += f"**Диалогов:** {session_stats['messages_count']}/{session_stats['max_capacity']}\n"
+            info_text += f"**Время жизни:** До перезапуска бота\n\n"
+            info_text += f"**Как работает:**\n"
+            info_text += f"• 💾 Хранит последние {session_stats['max_capacity']} пар диалогов\n"
+            info_text += f"• ⚡ Быстрый доступ к недавней истории\n"
+            info_text += f"• 🆓 Полностью бесплатная\n\n"
+            info_text += f"**Для максимального эффекта включите гибридный режим! 🔥**"
+        
+        await callback.message.edit_text(  # type: ignore
+            info_text,
+            reply_markup=get_back_menu()
+        )
+        await callback.answer("ℹ️ Информация о памяти")
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения информации о памяти: {e}")
+        await callback.answer("❌ Ошибка получения информации")
 
 @chatgpt_router.callback_query(F.data == "main_menu", StateFilter(ChatGPTStates.waiting_for_message))
 async def exit_chatgpt_mode(callback: CallbackQuery, state: FSMContext):
@@ -596,17 +710,22 @@ async def show_module_info(message: Message):
         max_duration=MODULE_CONFIG['max_audio_duration_sec'] // 60  # В минутах
     )
     
-    # Добавляем информацию о Mem0 памяти
-    if MODULE_CONFIG.get('mem0_enabled', False):
-        memory_stats = memory_service.get_memory_stats()
-        memory_status = "✅ Включена" if memory_stats.get('enabled', False) else "❌ Отключена"
-        memory_provider = memory_stats.get('provider', 'N/A')
-        
-        info_text += f"\n\n**Mem0 Память:**\n"
-        info_text += f"• Статус: {memory_status}\n"
-        info_text += f"• Провайдер: {memory_provider}"
+    # Добавляем информацию о гибридной системе памяти
+    memory_stats = memory_service.get_memory_stats()
+    user_id = str(message.from_user.id) if message.from_user else "unknown"
+    session_stats = memory_service.get_session_memory_stats(user_id)
+    
+    if memory_stats.get('mode') == 'hybrid':
+        info_text += f"\n\n**🔥 Гибридная память (Mem0 + RAM):**\n"
+        info_text += f"• Статус: ✅ Активна\n"
+        info_text += f"• Долговременная: Mem0 API\n"
+        info_text += f"• Сессионная: {session_stats['messages_count']}/{session_stats['max_capacity']} диалогов\n"
+        info_text += f"• Максимальный контекст из обеих систем"
     else:
-        info_text += f"\n\n**Mem0 Память:** ❌ Отключена"
+        info_text += f"\n\n**📝 Сессионная память (RAM):**\n"
+        info_text += f"• Статус: ✅ Активна\n"
+        info_text += f"• Диалогов: {session_stats['messages_count']}/{session_stats['max_capacity']}\n"
+        info_text += f"• Только текущая сессия"
     
     await message.reply(info_text, reply_markup=get_back_menu())
 
@@ -654,20 +773,20 @@ async def show_module_info_outside(message: Message):
     info_text += f"• Макс. размер: {MODULE_CONFIG['max_image_size_mb']} МБ\n"
     info_text += f"• Предупреждения о затратах: {'✅' if MODULE_CONFIG['vision_cost_warnings'] else '❌'}"
     
-    # Добавляем информацию о Mem0 памяти
-    if MODULE_CONFIG.get('mem0_enabled', False):
-        memory_stats = memory_service.get_memory_stats()
-        memory_status = "✅ Включена" if memory_stats.get('enabled', False) else "❌ Отключена"
-        memory_provider = memory_stats.get('provider', 'N/A')
-        
-        info_text += f"\n\n**Mem0 Память:**\n"
-        info_text += f"• Статус: {memory_status}\n"
-        info_text += f"• Провайдер: {memory_provider}\n"
-        info_text += f"• Долговременная память диалогов"
+    # Добавляем информацию о гибридной системе памяти
+    memory_stats = memory_service.get_memory_stats()
+    
+    if memory_stats.get('mode') == 'hybrid':
+        info_text += f"\n\n**🔥 Гибридная память (Mem0 + RAM):**\n"
+        info_text += f"• Статус: ✅ Активна\n"
+        info_text += f"• Долговременная: Mem0 API (семантический поиск)\n"
+        info_text += f"• Сессионная: Последние диалоги в RAM\n"
+        info_text += f"• Максимальный контекст из обеих систем"
     else:
-        info_text += f"\n\n**Mem0 Память:**\n"
-        info_text += f"• Статус: ❌ Отключена\n"
-        info_text += f"• Для включения настройте MEM0_API_KEY в .env"
+        info_text += f"\n\n**📝 Сессионная память (RAM):**\n"
+        info_text += f"• Статус: ✅ Доступна\n"
+        info_text += f"• Хранение: Локальное во время сессии\n"
+        info_text += f"• Для максимального эффекта: настройте MEM0_API_KEY в .env"
     
     info_text += f"\n\n💡 Активируйте модуль: /start → 🤖 ChatGPT"
     
