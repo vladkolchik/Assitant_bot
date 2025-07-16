@@ -13,6 +13,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from .config import MODULE_CONFIG, OPENAI_API_KEY
 from .messages import MESSAGES
 from .services import transcribe_voice_message, transcribe_video_note, transcribe_audio_file
+from .image_utils import create_image_processor
 
 # Состояния модуля
 class ChatGPTStates(StatesGroup):
@@ -32,6 +33,19 @@ except ImportError:
     OPENAI_AVAILABLE = False
     openai_client = None
     print("⚠️ OpenAI library not installed. Run: pip install openai")
+
+# Инициализируем обработчик изображений
+try:
+    if MODULE_CONFIG['vision_enabled']:
+        image_processor = create_image_processor(MODULE_CONFIG)
+        VISION_AVAILABLE = True
+    else:
+        image_processor = None
+        VISION_AVAILABLE = False
+except ImportError:
+    print("⚠️ PIL (Pillow) library not installed. Vision API disabled. Run: pip install Pillow")
+    image_processor = None
+    VISION_AVAILABLE = False
 
 def get_back_menu():
     """Клавиатура для возврата в главное меню"""
@@ -314,6 +328,119 @@ async def _process_transcribed_text(message: Message, transcription: str, audio_
         error_text = MESSAGES["error_api"].format(error=str(e))
         await thinking_msg.edit_text(error_text)
 
+@chatgpt_router.message(StateFilter(ChatGPTStates.waiting_for_message), F.photo)
+async def handle_image_message(message: Message, bot: Bot, state: FSMContext):
+    """Обработка изображений через Vision API"""
+    if not OPENAI_AVAILABLE or not openai_client or not message.photo:
+        return
+    
+    if not VISION_AVAILABLE or not image_processor:
+        await message.reply(
+            "📷 **Vision API отключен или недоступен**\n\n"
+            "Возможные причины:\n"
+            "• Модуль не настроен для работы с изображениями\n"
+            "• Модель не поддерживает Vision API\n"
+            "• Отсутствует библиотека PIL\n\n"
+            f"Используйте модели: gpt-4o, gpt-4o-mini, gpt-4-vision-preview",
+            reply_markup=get_back_menu()
+        )
+        return
+    
+    # Показываем что обрабатываем изображение
+    processing_msg = await message.reply("🖼️ Обрабатываю изображение...")
+    
+    try:
+        # Берем изображение наивысшего качества
+        photo = message.photo[-1]
+        
+        # Загружаем изображение
+        file_stream = await bot.download(photo)  # type: ignore
+        if not file_stream:
+            await processing_msg.edit_text("❌ Не удалось загрузить изображение")
+            return
+        
+        image_bytes = file_stream.read()  # type: ignore
+        file_stream.close()
+        
+        # Подготавливаем изображение для API
+        base64_image, image_info = image_processor.prepare_image_for_api(
+                            image_bytes, MODULE_CONFIG['vision_quality']
+        )
+        
+        # Показываем информацию о затратах (если включено)
+        if MODULE_CONFIG['vision_cost_warnings']:
+            cost_warning = image_processor.get_cost_warning(image_info, MODULE_CONFIG['model'])
+            await processing_msg.edit_text(
+                f"🖼️ **Изображение обработано:**\n\n{cost_warning}\n\n🤖 Анализирую..."
+            )
+        else:
+            await processing_msg.edit_text("🤖 Анализирую изображение...")
+        
+        # Формируем сообщения для Vision API
+        user_text = message.caption if message.caption else "Опишите, что вы видите на этом изображении."
+        
+        api_messages = [
+            {
+                "role": "system", 
+                "content": "Вы полезный AI ассистент с возможностью анализа изображений. Отвечайте на русском языке, будьте дружелюбны и подробны в описаниях."
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "detail": MODULE_CONFIG['vision_quality']
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        # Получаем параметры для API с учетом модели (без temperature для reasoning моделей)
+        api_params = get_api_params(
+            model=MODULE_CONFIG['model'],
+            messages=api_messages,
+            temperature=MODULE_CONFIG['temperature'],
+            max_tokens=MODULE_CONFIG['max_tokens'],
+            timeout=MODULE_CONFIG['timeout']
+        )
+        
+        # Делаем запрос к Vision API
+        response = await asyncio.to_thread(
+            openai_client.chat.completions.create,  # type: ignore
+            **api_params
+        )
+        
+        # Получаем ответ
+        ai_response = response.choices[0].message.content
+        if ai_response:
+            ai_response = ai_response.strip()
+        else:
+            ai_response = "Извините, не удалось проанализировать изображение."
+        
+        # Удаляем сообщение обработки
+        await processing_msg.delete()
+        
+        # Формируем итоговый ответ
+        response_text = f"🖼️ **Vision API:**\n\n"
+        if message.caption:
+            response_text += f"*Ваш вопрос:* {message.caption}\n\n"
+        response_text += f"*Анализ изображения:* {ai_response}"
+        
+        # Добавляем информацию о затратах в конце (если включено)
+        if MODULE_CONFIG['vision_cost_warnings']:
+            estimated_cost = image_processor.estimate_cost_usd(image_info['estimated_tokens'], MODULE_CONFIG['model'])
+            response_text += f"\n\n💰 *Затрачено: ~${estimated_cost:.4f} (~{image_info['estimated_tokens']} токенов)*"
+        
+        await message.reply(response_text, reply_markup=get_back_menu())
+        
+    except Exception as e:
+        error_text = f"❌ **Ошибка Vision API:**\n{str(e)}\n\n💡 Возможные причины:\n• Модель не поддерживает изображения\n• Превышен лимит API\n• Проблемы с обработкой изображения"
+        await processing_msg.edit_text(error_text)
+
 @chatgpt_router.message(StateFilter(ChatGPTStates.waiting_for_message))
 async def handle_unsupported_message(message: Message):
     """Обработка неподдерживаемых типов сообщений в режиме ChatGPT"""
@@ -325,7 +452,17 @@ async def handle_unsupported_message(message: Message):
 @chatgpt_router.callback_query(F.data == "main_menu", StateFilter(ChatGPTStates.waiting_for_message))
 async def exit_chatgpt_mode(callback: CallbackQuery, state: FSMContext):
     """Выход из режима ChatGPT"""
+    if not callback.message:
+        return
+    
+    # Очищаем состояние
     await state.clear()
+    
+    # Импортируем главное меню
+    from keyboards.main_menu import get_main_menu
+    
+    # Отображаем главное меню
+    await callback.message.edit_text("📋 Главное меню:", reply_markup=get_main_menu())  # type: ignore
     await callback.answer(MESSAGES["welcome_back"])
 
 @chatgpt_router.message(StateFilter(ChatGPTStates.waiting_for_message), F.text.startswith("/chatgpt_info"))
@@ -380,6 +517,10 @@ async def show_module_info_outside(message: Message):
         token_note = "(max_tokens)"
         display_tokens = MODULE_CONFIG['original_max_tokens']
     
+    # Информация о Vision API для внешнего вызова
+    vision_status = "✅ Включен" if MODULE_CONFIG['vision_enabled'] and VISION_AVAILABLE else "❌ Отключен"
+    vision_quality = MODULE_CONFIG['vision_quality'] if MODULE_CONFIG['vision_enabled'] else "N/A"
+    
     info_text = MESSAGES["model_info"].format(
         model=current_model,
         temperature=temperature,
@@ -391,6 +532,13 @@ async def show_module_info_outside(message: Message):
         max_size=MODULE_CONFIG['max_audio_size_mb'],
         max_duration=MODULE_CONFIG['max_audio_duration_sec'] // 60  # В минутах
     )
+    
+    # Добавляем информацию о Vision API
+    info_text += f"\n\n**Vision API (изображения):**\n"
+    info_text += f"• Статус: {vision_status}\n"
+    info_text += f"• Качество: {vision_quality}\n"
+    info_text += f"• Макс. размер: {MODULE_CONFIG['max_image_size_mb']} МБ\n"
+    info_text += f"• Предупреждения о затратах: {'✅' if MODULE_CONFIG['vision_cost_warnings'] else '❌'}"
     
     info_text += f"\n\n💡 Активируйте модуль: /start → 🤖 ChatGPT"
     

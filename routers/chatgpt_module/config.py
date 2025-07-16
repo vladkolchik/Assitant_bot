@@ -42,6 +42,14 @@ MAX_AUDIO_DURATION_SEC = int(os.getenv("MAX_AUDIO_DURATION_SEC", "300"))
 AUDIO_TEMP_DIR = os.getenv("AUDIO_TEMP_DIR", "temp_audio")
 AUTO_CLEANUP_TEMP_FILES = os.getenv("AUTO_CLEANUP_TEMP_FILES", "true").lower() == "true"
 
+# ===== VISION API НАСТРОЙКИ (Изображения) =====
+VISION_ENABLED = os.getenv("VISION_ENABLED", "true").lower() == "true"
+VISION_QUALITY = os.getenv("VISION_QUALITY", "low").lower()  # Исправлено: было VISION_DETAIL
+MAX_IMAGE_SIZE_MB = int(os.getenv("MAX_IMAGE_SIZE_MB", "10"))
+IMAGE_QUALITY = int(os.getenv("IMAGE_QUALITY", "85"))  # Добавлено: качество сжатия JPEG
+MAX_IMAGE_RESOLUTION = int(os.getenv("MAX_IMAGE_RESOLUTION", "1024"))
+VISION_COST_WARNINGS = os.getenv("VISION_COST_WARNINGS", "true").lower() == "true"  # Исправлено: было SHOW_COST_WARNINGS
+
 # Валидация обязательных переменных
 REQUIRED_VARS = {
     "OPENAI_API_KEY": OPENAI_API_KEY,
@@ -57,6 +65,30 @@ if WHISPER_MODE not in ["api", "local"]:
     print(f"⚠️  Неверное значение WHISPER_MODE: {WHISPER_MODE}")
     print("📋 Допустимые значения: 'api' или 'local'")
     WHISPER_MODE = "api"  # Fallback на API
+
+# Валидация VISION настроек
+if VISION_QUALITY not in ["low", "high"]:
+    print(f"⚠️  Неверное значение VISION_QUALITY: {VISION_QUALITY}")
+    print("📋 Допустимые значения: 'low' или 'high'")
+    VISION_QUALITY = "low"  # Fallback на экономичный режим
+
+# Проверка поддержки Vision API моделью
+# Базовые модели с Vision поддержкой
+VISION_SUPPORTED_MODELS = ["gpt-4-vision-preview", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
+# Плюс все o4-модели (reasoning модели с Vision)
+VISION_SUPPORTED_PREFIXES = ["o4-"]
+
+# Проверяем поддержку Vision
+vision_supported = (
+    any(model in OPENAI_MODEL for model in VISION_SUPPORTED_MODELS) or
+    any(OPENAI_MODEL.startswith(prefix) for prefix in VISION_SUPPORTED_PREFIXES)
+)
+
+if VISION_ENABLED and not vision_supported:
+    print(f"⚠️  Модель {OPENAI_MODEL} не поддерживает изображения!")
+    print(f"📋 Vision поддерживают: {', '.join(VISION_SUPPORTED_MODELS)} и o4-* модели")
+    print("🔧 Отключаем поддержку изображений...")
+    VISION_ENABLED = False
 
 # Валидация модели и токенов
 if any(OPENAI_MODEL.startswith(prefix) for prefix in ['o1-', 'o3-', 'o4-']) and EFFECTIVE_MAX_TOKENS < 1000:
@@ -85,6 +117,14 @@ MODULE_CONFIG = {
     'max_audio_duration_sec': MAX_AUDIO_DURATION_SEC,
     'audio_temp_dir': AUDIO_TEMP_DIR,
     'auto_cleanup_temp_files': AUTO_CLEANUP_TEMP_FILES,
+    
+    # Vision API настройки
+    'vision_enabled': VISION_ENABLED,
+    'vision_quality': VISION_QUALITY,  # Исправлено: было vision_detail
+    'max_image_size_mb': MAX_IMAGE_SIZE_MB,
+    'image_quality': IMAGE_QUALITY,  # Добавлено: качество сжатия JPEG
+    'max_image_resolution': MAX_IMAGE_RESOLUTION,
+    'vision_cost_warnings': VISION_COST_WARNINGS,  # Исправлено: было show_cost_warnings
 }
 
 # Создаем папку для временных аудио файлов
