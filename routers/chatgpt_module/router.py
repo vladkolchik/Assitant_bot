@@ -325,7 +325,17 @@ async def handle_unsupported_message(message: Message):
 @chatgpt_router.callback_query(F.data == "main_menu", StateFilter(ChatGPTStates.waiting_for_message))
 async def exit_chatgpt_mode(callback: CallbackQuery, state: FSMContext):
     """Выход из режима ChatGPT"""
+    if not callback.message:
+        return
+    
+    # Очищаем состояние
     await state.clear()
+    
+    # Импортируем главное меню
+    from keyboards.main_menu import get_main_menu
+    
+    # Отображаем главное меню
+    await callback.message.edit_text("📋 Главное меню:", reply_markup=get_main_menu())  # type: ignore
     await callback.answer(MESSAGES["welcome_back"])
 
 @chatgpt_router.message(StateFilter(ChatGPTStates.waiting_for_message), F.text.startswith("/chatgpt_info"))
