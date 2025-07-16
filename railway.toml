@@ -1,0 +1,23 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "always"
+
+[env]
+# Railway автоматически предоставляет PORT
+# Telegram Bot Token нужно установить в Railway dashboard
+# TELEGRAM_BOT_TOKEN = "your_bot_token_here"
+
+# OpenAI API ключ нужно установить в Railway dashboard  
+# OPENAI_API_KEY = "your_openai_key_here"
+
+# Рекомендуемые настройки для Railway
+OPENAI_MODEL = "o4-mini"
+OPENAI_MAX_COMPLETION_TOKENS = "5000"
+WHISPER_MODE = "api"
+WHISPER_LANGUAGE = "auto"
+MAX_AUDIO_SIZE_MB = "25"
+AUTO_CLEANUP_TEMP_FILES = "true" 
