@@ -50,6 +50,10 @@ IMAGE_QUALITY = int(os.getenv("IMAGE_QUALITY", "85"))  # Добавлено: к�
 MAX_IMAGE_RESOLUTION = int(os.getenv("MAX_IMAGE_RESOLUTION", "1024"))
 VISION_COST_WARNINGS = os.getenv("VISION_COST_WARNINGS", "true").lower() == "true"  # Исправлено: было SHOW_COST_WARNINGS
 
+# ===== MEM0 ПАМЯТЬ НАСТРОЙКИ =====
+MEM0_API_KEY = os.getenv("MEM0_API_KEY")
+MEM0_ENABLED = os.getenv("MEM0_ENABLED", "false").lower() == "true" and MEM0_API_KEY is not None
+
 # Валидация обязательных переменных
 REQUIRED_VARS = {
     "OPENAI_API_KEY": OPENAI_API_KEY,
@@ -125,6 +129,10 @@ MODULE_CONFIG = {
     'image_quality': IMAGE_QUALITY,  # Добавлено: качество сжатия JPEG
     'max_image_resolution': MAX_IMAGE_RESOLUTION,
     'vision_cost_warnings': VISION_COST_WARNINGS,  # Исправлено: было show_cost_warnings
+    
+    # Mem0 память настройки
+    'mem0_enabled': MEM0_ENABLED,
+    'mem0_api_key': MEM0_API_KEY,
 }
 
 # Создаем папку для временных аудио файлов
