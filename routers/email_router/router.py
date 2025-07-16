@@ -57,14 +57,14 @@ async def menu_handler(callback: CallbackQuery):
         
         try:
             if callback.message:
-                await callback.message.edit_text(msg, reply_markup=get_email_menu())
+                await callback.message.edit_text(msg, reply_markup=get_email_menu())  # type: ignore
         except TelegramBadRequest:
             await callback.answer("ℹ️ Уже в режиме email", show_alert=False)
     elif data == "reset_draft":
         state["draft"] = {}
         state["files"] = []
         if callback.message:
-            await callback.message.edit_text("🗑 Черновик и вложения очищены.", reply_markup=get_email_menu())
+            await callback.message.edit_text("🗑 Черновик и вложения очищены.", reply_markup=get_email_menu())  # type: ignore
     elif data == "exit_email_mode":
         state["mode"] = "default"
         # НЕ сбрасываем черновик и файлы при выходе из email режима
@@ -80,18 +80,18 @@ async def menu_handler(callback: CallbackQuery):
         
         try:
             if callback.message:
-                await callback.message.edit_text(msg, reply_markup=get_recipient_menu(), parse_mode='HTML')
+                await callback.message.edit_text(msg, reply_markup=get_recipient_menu(), parse_mode='HTML')  # type: ignore
         except TelegramBadRequest:
             await callback.answer("ℹ️ Получатель не изменился", show_alert=False)
 
     elif data == "edit_recipient":
         state["mode"] = "entering_email"
         if callback.message:
-            await callback.message.edit_text(MESSAGES["ask_recipient"], reply_markup=get_recipient_menu())
+            await callback.message.edit_text(MESSAGES["ask_recipient"], reply_markup=get_recipient_menu())  # type: ignore
     elif data == "reset_recipient":
         state["recipient"] = None
         if callback.message:
-            await callback.message.edit_text(MESSAGES["recipient_reset"], reply_markup=get_recipient_menu())
+            await callback.message.edit_text(MESSAGES["recipient_reset"], reply_markup=get_recipient_menu())  # type: ignore
     elif data == "back_to_email_menu":
         # Формируем динамическое сообщение с информацией о состоянии
         recipient = state["recipient"] or default_recipient
@@ -106,7 +106,7 @@ async def menu_handler(callback: CallbackQuery):
             msg += " ⚠️"
         
         if callback.message:
-            await callback.message.edit_text(msg, reply_markup=get_email_menu(), parse_mode='HTML')
+            await callback.message.edit_text(msg, reply_markup=get_email_menu(), parse_mode='HTML')  # type: ignore
     elif data == "show_attachments":
         files = state.get("files", [])
         if not files:
@@ -116,7 +116,7 @@ async def menu_handler(callback: CallbackQuery):
         
         try:
             if callback.message:
-                await callback.message.edit_text(msg, reply_markup=get_email_menu())
+                await callback.message.edit_text(msg, reply_markup=get_email_menu())  # type: ignore
         except TelegramBadRequest:
             await callback.answer("ℹ️ Информация актуальна", show_alert=False)
 
@@ -150,8 +150,24 @@ async def handle_input(message: Message):
             await message.answer(MESSAGES["invalid_email"])
     elif state["mode"] == "email":
         if message.document:
-            file = await message.bot.download(message.document)
-            file_bytes = file.read()
+            try:
+                # Безопасная загрузка файла из Telegram
+                if message.bot and message.document:
+                    file_stream = await message.bot.download(message.document)  # type: ignore
+                    if file_stream:
+                        file_bytes = file_stream.read()  # type: ignore  # Читаем все байты
+                        file_stream.close()  # Закрываем поток
+                        file_name = message.document.file_name or f"document_{message.document.file_unique_id}"
+                    else:
+                        await message.answer("❌ Не удалось загрузить файл")
+                        return
+                else:
+                    await message.answer("❌ Ошибка: отсутствует бот или документ")
+                    return
+            except Exception as e:
+                await message.answer(f"❌ Ошибка загрузки файла: {e}")
+                return
+            
             if message.caption:
                 lines = message.caption.strip().splitlines()
                 if len(lines) >= 2:
@@ -161,7 +177,7 @@ async def handle_input(message: Message):
                     subject = lines[0]
                     body = "\n".join(lines[1:])
                     recipient = state["recipient"] or default_recipient
-                    attachments = state["files"] + [(message.document.file_name, file_bytes)]
+                    attachments = state["files"] + [(file_name, file_bytes)]
                     success, error_msg = send_email_oauth2(recipient, subject, body, attachments)
                     if success:
                         await message.answer("✅ Письмо с вложением отправлено.")
@@ -175,14 +191,27 @@ async def handle_input(message: Message):
                     await message.answer(MESSAGES["invalid_format"])
                     return
             else:
-                state["files"].append((message.document.file_name, file_bytes))
-                await message.answer(f"📎 Файл «{message.document.file_name}» прикреплён.")
+                state["files"].append((file_name, file_bytes))
+                await message.answer(f"📎 Файл «{file_name}» прикреплён.")
         elif message.photo:
             # Берем фото с наивысшим качеством (последнее в массиве)
             photo = message.photo[-1]
-            file = await message.bot.download(photo)
-            file_bytes = file.read()
-            file_name = f"screenshot_{photo.file_unique_id}.jpg"
+            try:
+                if message.bot:
+                    file_stream = await message.bot.download(photo)  # type: ignore
+                    if file_stream:
+                        file_bytes = file_stream.read()  # type: ignore
+                        file_stream.close()
+                        file_name = f"screenshot_{photo.file_unique_id}.jpg"
+                    else:
+                        await message.answer("❌ Не удалось загрузить фото")
+                        return
+                else:
+                    await message.answer("❌ Ошибка: отсутствует бот")
+                    return
+            except Exception as e:
+                await message.answer(f"❌ Ошибка загрузки фото: {e}")
+                return
             
             if message.caption:
                 lines = message.caption.strip().splitlines()
