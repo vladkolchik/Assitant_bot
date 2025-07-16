@@ -252,5 +252,15 @@ async def handle_non_audio_message(message: Message):
 @audio_router.callback_query(F.data == "main_menu", StateFilter(AudioStates.waiting_for_audio))
 async def exit_transcription_mode(callback: CallbackQuery, state: FSMContext):
     """Выход из режима транскрипции"""
+    if not callback.message:
+        return
+    
+    # Очищаем состояние
     await state.clear()
+    
+    # Импортируем главное меню
+    from keyboards.main_menu import get_main_menu
+    
+    # Отображаем главное меню
+    await callback.message.edit_text("📋 Главное меню:", reply_markup=get_main_menu())
     await callback.answer(MESSAGES["welcome_back"]) 
