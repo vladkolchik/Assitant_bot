@@ -14,6 +14,7 @@ from .config import MODULE_CONFIG, OPENAI_API_KEY
 from .messages import MESSAGES
 from .services import transcribe_voice_message, transcribe_video_note, transcribe_audio_file
 from .image_utils import create_image_processor
+from .memory_service import memory_service
 
 # Состояния модуля
 class ChatGPTStates(StatesGroup):
@@ -48,10 +49,17 @@ except ImportError:
     VISION_AVAILABLE = False
 
 def get_back_menu():
-    """Клавиатура для возврата в главное меню"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
+    """Клавиатура для возврата в главное меню и управления памятью"""
+    keyboard = []
+    
+    # Добавляем кнопку очистки памяти если Mem0 включен
+    if MODULE_CONFIG.get('mem0_enabled', False):
+        keyboard.append([InlineKeyboardButton(text="🗑️ Очистить память", callback_data="clear_memory")])
+    
+    # Кнопка возврата в главное меню
+    keyboard.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_token_params(model: str, max_tokens: int) -> dict:
     """
@@ -130,14 +138,55 @@ async def handle_chatgpt_message(message: Message, state: FSMContext):
     if not OPENAI_AVAILABLE or not openai_client or not message.text:
         return
     
+    if not message.from_user:
+        return
+        
+    user_id = str(message.from_user.id)
+    user_text = message.text
+    
     # Показываем что бот думает
     thinking_msg = await message.reply(MESSAGES["thinking"])
     
     try:
+        # Ищем релевантный контекст из памяти
+        memory_context = ""
+        context_count = 0
+        
+        if MODULE_CONFIG.get('mem0_enabled', False):
+            try:
+                # Получаем релевантные воспоминания
+                memory_context = await memory_service.search_relevant_memories(user_id, user_text, limit=3)
+                
+                # Получаем профиль пользователя
+                user_profile = await memory_service.get_user_profile(user_id)
+                
+                # Объединяем контекст
+                full_context_parts = []
+                if user_profile:
+                    full_context_parts.append(user_profile)
+                if memory_context:
+                    full_context_parts.append(memory_context)
+                
+                memory_context = "\n\n".join(full_context_parts)
+                
+                if memory_context:
+                    context_count = len(memory_context.split('\n')) - 1  # Подсчитываем количество воспоминаний
+                    # print(f"🧠 Загружен контекст из памяти для {user_id}: {context_count} воспоминаний")
+                    # print(f"🔍 ОТЛАДКА - Загруженный контекст: {memory_context}")
+            except Exception as e:
+                print(f"⚠️ Ошибка поиска в памяти: {e}")
+        
         # Формируем сообщения для API
+        system_content = "Вы полезный AI ассистент. Отвечайте на русском языке, будьте дружелюбны и информативны."
+        
+        # Для reasoning-моделей добавляем контекст в пользовательское сообщение
+        user_content = user_text
+        if memory_context:
+            user_content = f"Контекст из предыдущих диалогов:\n{memory_context}\n\nВопрос пользователя: {user_text}"
+        
         api_messages = [
-            {"role": "system", "content": "Вы полезный AI ассистент. Отвечайте на русском языке, будьте дружелюбны и информативны."},
-            {"role": "user", "content": message.text}
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content}
         ]
         
         # Получаем параметры для API с учетом модели
@@ -165,11 +214,27 @@ async def handle_chatgpt_message(message: Message, state: FSMContext):
         # Удаляем сообщение "Думаю..."
         await thinking_msg.delete()
         
+        # Формируем ответ с информацией о памяти
+        response_text = f"🤖 **ChatGPT:**\n\n{ai_response}"
+        
+        # Добавляем информацию о загруженном контексте если есть
+        if MODULE_CONFIG.get('mem0_enabled', False) and context_count > 0:
+            response_text += f"\n\n{MESSAGES['memory_context_loaded'].format(count=context_count)}"
+        
         # Отправляем ответ AI
-        await message.reply(
-            f"🤖 **ChatGPT:**\n\n{ai_response}",
-            reply_markup=get_back_menu()
-        )
+        await message.reply(response_text, reply_markup=get_back_menu())
+        
+        # Сохраняем диалог в память
+        if MODULE_CONFIG.get('mem0_enabled', False):
+            try:
+                conversation = [
+                    {"role": "user", "content": user_text},
+                    {"role": "assistant", "content": ai_response}
+                ]
+                # print(f"💾 ОТЛАДКА - Сохраняем в память: {conversation}")
+                await memory_service.add_conversation(user_id, conversation)
+            except Exception as e:
+                print(f"⚠️ Ошибка сохранения в память: {e}")
         
     except asyncio.TimeoutError:
         await thinking_msg.edit_text(MESSAGES["error_timeout"])
@@ -449,6 +514,43 @@ async def handle_unsupported_message(message: Message):
         reply_markup=get_back_menu()
     )
 
+@chatgpt_router.callback_query(F.data == "clear_memory", StateFilter(ChatGPTStates.waiting_for_message))
+async def clear_user_memory(callback: CallbackQuery):
+    """Очистка памяти пользователя"""
+    if not callback.message:
+        return
+    
+    user_id = str(callback.from_user.id)
+    
+    if not MODULE_CONFIG.get('mem0_enabled', False):
+        await callback.answer(MESSAGES["memory_disabled"])
+        return
+    
+    try:
+        # Очищаем память пользователя
+        success = await memory_service.clear_user_memory(user_id)
+        
+        if success:
+            await callback.message.edit_text(  # type: ignore
+                MESSAGES["memory_cleared"],
+                reply_markup=get_back_menu()
+            )
+            await callback.answer("🗑️ Память очищена!")
+        else:
+            await callback.message.edit_text(  # type: ignore
+                MESSAGES["memory_clear_error"],
+                reply_markup=get_back_menu()
+            )
+            await callback.answer("❌ Ошибка очистки")
+            
+    except Exception as e:
+        print(f"❌ Ошибка очистки памяти: {e}")
+        await callback.message.edit_text(  # type: ignore
+            MESSAGES["memory_clear_error"],
+            reply_markup=get_back_menu()
+        )
+        await callback.answer("❌ Ошибка очистки")
+
 @chatgpt_router.callback_query(F.data == "main_menu", StateFilter(ChatGPTStates.waiting_for_message))
 async def exit_chatgpt_mode(callback: CallbackQuery, state: FSMContext):
     """Выход из режима ChatGPT"""
@@ -493,6 +595,18 @@ async def show_module_info(message: Message):
         max_size=MODULE_CONFIG['max_audio_size_mb'],
         max_duration=MODULE_CONFIG['max_audio_duration_sec'] // 60  # В минутах
     )
+    
+    # Добавляем информацию о Mem0 памяти
+    if MODULE_CONFIG.get('mem0_enabled', False):
+        memory_stats = memory_service.get_memory_stats()
+        memory_status = "✅ Включена" if memory_stats.get('enabled', False) else "❌ Отключена"
+        memory_provider = memory_stats.get('provider', 'N/A')
+        
+        info_text += f"\n\n**Mem0 Память:**\n"
+        info_text += f"• Статус: {memory_status}\n"
+        info_text += f"• Провайдер: {memory_provider}"
+    else:
+        info_text += f"\n\n**Mem0 Память:** ❌ Отключена"
     
     await message.reply(info_text, reply_markup=get_back_menu())
 
@@ -539,6 +653,21 @@ async def show_module_info_outside(message: Message):
     info_text += f"• Качество: {vision_quality}\n"
     info_text += f"• Макс. размер: {MODULE_CONFIG['max_image_size_mb']} МБ\n"
     info_text += f"• Предупреждения о затратах: {'✅' if MODULE_CONFIG['vision_cost_warnings'] else '❌'}"
+    
+    # Добавляем информацию о Mem0 памяти
+    if MODULE_CONFIG.get('mem0_enabled', False):
+        memory_stats = memory_service.get_memory_stats()
+        memory_status = "✅ Включена" if memory_stats.get('enabled', False) else "❌ Отключена"
+        memory_provider = memory_stats.get('provider', 'N/A')
+        
+        info_text += f"\n\n**Mem0 Память:**\n"
+        info_text += f"• Статус: {memory_status}\n"
+        info_text += f"• Провайдер: {memory_provider}\n"
+        info_text += f"• Долговременная память диалогов"
+    else:
+        info_text += f"\n\n**Mem0 Память:**\n"
+        info_text += f"• Статус: ❌ Отключена\n"
+        info_text += f"• Для включения настройте MEM0_API_KEY в .env"
     
     info_text += f"\n\n💡 Активируйте модуль: /start → 🤖 ChatGPT"
     

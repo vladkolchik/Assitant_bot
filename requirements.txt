@@ -11,6 +11,9 @@ ffmpeg-python==0.2.0
 # Image processing dependencies
 Pillow==10.2.0
 
+# Memory service dependencies (optional)
+mem0ai>=0.1.0
+
 # Email module dependencies
 google-auth==2.29.0
 google-auth-oauthlib==1.2.0
